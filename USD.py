@@ -1,138 +1,170 @@
-import gym
 import numpy as np
+import gym
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 import cv2
+import matplotlib
+import matplotlib.pyplot as plt
 
-###### wspólne metody
+###### wspólne klasy metody
 
+class GeneralSettings:
+    def __init__(self):
+        self.romName = "Seaquest-v0"
+        self.load = None
+        self.imageSizeX = 210
+        self.imageSizeY = 160
+        self.imageScale = 0.25
+        self.possibleActions = 5
+        self.episodes = 5
+        self.maxStepsPerEpisode = 10000
+        self.denseUnits = 32
+        self.rewardPenalty = 0
+        self.seed = 0
+        self.gamma = 0.99 #discount factor
+        self._lambda = 0.9
+        self.eps = np.finfo(np.float32).eps.item()
 
-def map_to_grayscale(state):
+    def resizedPixelCount(self):
+        return int(self.imageSizeX*self.imageScale)*int(self.imageSizeY*self.imageScale)
 
-    # return cv2.cvtColor(state, cv2.COLOR_BGR2GRAY)
-  return image
-    Y = range(len(state))
-    X = range(len(state[0]))
-    C = range(len(state[0][0]))
-    mapped = np.array([[0 for col in X] for row in Y])
-    for y in Y:
-        for x in X:
-            val = 0
-            for c in C:
-                val += state[y][x][c]
-            mapped[y][x] = val / 3
-    return mapped
+class AKLambdaSettings:
+    def __init__(self):
+        self.general = GeneralSettings()
+
+class RenderResult:
+    def __init__(self):
+        self.actionProb = 0
+        self.criticVal = 0
+        self.reward = 0
+        self.actorLoss = 0
+        self.criticLoss = 0
+
+def to_compressedGrayscale(image, scale):
+    width = int(image.shape[1] * scale)
+    height = int(image.shape[0] * scale)
+    image = cv2.resize(image, (width, height), interpolation = cv2.INTER_AREA)
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
 
 ###### /wspólne metody
 
 
-romName = "Seaquest-v0"
-
 ###### aktor-krytyk
 
-algorithm_name = "actor_critic"
-version = "1"
+def trainAKLambda(romName, s = AKLambdaSettings()):
+
+    #tf.compat.v1.enable_eager_execution()
+
+    env = gym.make(s.general.romName)
+    env.seed(s.general.seed)
+    stateShape = layers.Input(shape=(s.general.resizedPixelCount(),))
+    
+    
+ 
+    if(s.general.load is not None):
+        model = keras.models.load_model(s.general.load)
+    else:
+        normalized = layers.LayerNormalization()(layers.Dense(s.general.denseUnits, activation="relu")(stateShape))
+        actions = layers.Dense(env.action_space.n, activation="softmax")(normalized)
+        critic = layers.Dense(1)(normalized)
+        model = keras.Model(inputs=stateShape, outputs=[actions, critic])
+
+    optimizer = keras.optimizers.Adam()
 
 
-
-load_snapshot = False
-
-
-seed = 0
-gamma = 0.99 #discount factor
-max_steps_per_episode = 10000
-env = gym.make(romName)
-env.seed(seed)
-eps = np.finfo(np.float32).eps.item()
-
-screenY = 210
-screenX = 160
-num_inputs = screenY * screenX
-hidden_layer_1_units = 128
-num_actions = 5
-
-inputs = layers.Input(shape=(num_inputs,))
-
-hidden_layer_1 = layers.Dense(hidden_layer_1_units, activation="relu")(inputs)
-normalized = layers.LayerNormalization()(hidden_layer_1)
-actions = layers.Dense(num_actions, activation="softmax")(normalized)
-critic = layers.Dense(1)(normalized)
-model = keras.Model(inputs=inputs, outputs=[actions, critic])
-
-optimizer = keras.optimizers.Adam(learning_rate=0.01)
+    episodesRewards = []
+    for currEpisode in range(s.general.episodes):       
+        episodeReward = 0
+        observation = env.reset()
 
 
-critic_value_history = []
-action_probs_history = []
-rewards_history = []
-episode_count = 0
-num_episodes = 100
-
-while episode_count in range(num_episodes):
-    state = env.reset()
-    state = map_to_grayscale(state)
-    episode_reward = 0
-    with tf.GradientTape() as tape:
         done = False
-        while not done:
-            env.render()
+        history = []
+        with tf.GradientTape() as gTape:
+            while not done:
+                
+                #env.render()           
+                observation = to_compressedGrayscale(observation, s.general.imageScale)
+                observation = np.reshape(observation, s.general.resizedPixelCount())
+                state = tf.convert_to_tensor(observation)
+                state = tf.expand_dims(state, 0)
+
+                actionsProb, criticVal = model(state)
+                chosenAction = np.random.choice(env.action_space.n, p=np.squeeze(actionsProb))          
+                observation, reward, done, _ = env.step(chosenAction)
+                
+                rResult = RenderResult()
+                rResult.criticVal = criticVal[0, 0]
+                rResult.action = tf.math.log(actionsProb[0, chosenAction])
+                rResult.reward = reward - s.general.rewardPenalty
+                history.append(rResult)
+
+                episodeReward += (reward - s.general.rewardPenalty)
+                
+
+            for currRender in history:
+                currRender.timeDiff = currRender.reward - currRender.criticVal + (0 if currRender is history[-1] else history[1 + history.index(currRender)].criticVal * s.general.gamma)
+
+
+            discRewards = []        
+            for currRender in history[::-1]:
+                discRewards.insert(0, currRender.reward + s.general.gamma * (0 if currRender is history[-1] else history[1 + history.index(currRender)].reward))
+
+
+            discRewards = np.array(discRewards)
+            discRewards = (discRewards - np.mean(discRewards)) / (np.std(discRewards) + s.general.eps)
+            discRewards = discRewards.tolist()
+
+            for discReward in discRewards:
+                history[discRewards.index(discReward)].reward = discReward
             
-            state = np.reshape(state, num_inputs)
-            state = tf.convert_to_tensor(state)
-            state = tf.expand_dims(state, 0)
-        
-            action_probs, critic_value = model(state)
-            critic_value_history.append(critic_value[0, 0])
-        
-            action = np.random.choice(num_actions, p=np.squeeze(action_probs))
-            action_probs_history.append(tf.math.log(action_probs[0, action]))
-        
-            state, reward, done, _ = env.step(action)
-            state = map_to_grayscale(state)
-            rewards_history.append(reward)
-            episode_reward += reward
-        
-        returns = []
-        discounted_sum = 0
-        for r in rewards_history[::-1]:
-            discounted_sum = r + gamma * discounted_sum
-            returns.insert(0, discounted_sum)
-        
-        returns = np.array(returns)
-        returns = (returns - np.mean(returns)) / (np.std(returns) + eps)
-        returns = returns.tolist()
-        
-        history = zip(action_probs_history, critic_value_history, returns)
-        actor_losses = []
-        critic_losses = []
-        huber_loss = keras.losses.Huber()
-        
-        for log_prob, value, ret in history:
-            diff = ret - value
-            actor_losses.append(-log_prob * diff)
-            critic_losses.append(
-                huber_loss(tf.expand_dims(value, 0), tf.expand_dims(ret, 0))
-            )
-        
-        grads = tape.gradient(sum(actor_losses) + sum(critic_losses), model.trainable_variables)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+            huberLosses = keras.losses.Huber()
             
-        action_probs_history.clear()
-        critic_value_history.clear()
-        rewards_history.clear()
-        
-    print("episode {}: rewarded with {}".format(episode_count, episode_reward))
-    episode_count += 1
-    if(not episode_count % 5):
-        model.save('./model_snapshots/model_{}_{}_ep{}'.format(algorithm_name, version, episode_count))
+            prevRender = None
+            for currRender in history:
+                currRender.actorLoss = s.general._lambda * s.general.gamma * 0 if prevRender is None else prevRender.actorLoss - currRender.action * (currRender.reward - currRender.criticVal)
+                currRender.criticLoss =  s.general._lambda * s.general.gamma * 0 if prevRender is None else prevRender.criticLoss + huberLosses(tf.expand_dims(currRender.criticVal, 0), tf.expand_dims(currRender.reward, 0))
+                prevRender = currRender
+            
+            
+            
+            gradient = gTape.gradient(sum([rHist.actorLoss + rHist.criticLoss for rHist in history]), model.trainable_variables)
+                            
+            optimizer.apply_gradients(zip(gradient, model.trainable_variables))
+            
+                
+            print("episode {}: rewarded with {}".format(currEpisode, episodeReward))
+            episodesRewards.append(episodeReward)
+
+            if currEpisode%10 == 0:
+                model.save('./model_snapshots/model_ep{}'.format(currEpisode))
+    
+    
+    fig, ax = plt.subplots()
+    ax.plot(range(1,s.general.episodes+1), episodesRewards)
+
+    ax.set(xlabel='epizod', ylabel='wynik',
+        title='Wyniki dla kolejnych epizodów')
+    ax.grid()
+    plt.show()
+    
 
 ###### /aktor-krytyk
 
 ###### Q-learning
 
+def trainQLearn(romName):
+    x = 1
+
 ###### /Q-learning
 
 ###### Porównanie
+
+romName = "Seaquest-v0"
+
+AKLambdaModel = trainAKLambda(romName)
+#QLearnModel = trainQLearn(romName)
 
 ###### /Porównanie
