@@ -2,7 +2,7 @@
 
 Do uruchomienia nalezy zaimportować biblioteki  
 opencv_python  
-matplotlib 
+matplotlib  
 numpy  
 tensorflow_probability  
 gym  
