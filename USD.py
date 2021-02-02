@@ -27,13 +27,13 @@ class GeneralSettings:
         self.imageScale = 0.25
         self.possibleActions = [1,2,3,4,5]
         self.episodes = 2000000000
-        self.denseUnits1 = 64
-        self.denseUnits2 = 64
+        self.denseUnits1 = 32
+        self.denseUnits2 = 32
         self.seed = 0
         self.gamma = 0.99 #discount factor
         self.eps = np.finfo(np.float32).eps.item()
         self.rewardPenalty = 0.01
-        self.learningRate = 0.000000001
+        self.learningRate = 0.00001
         self.diveMoves = 50
         
     def resizedShape(self):
@@ -47,10 +47,10 @@ class QLearningSettings:
     def __init__(self):
         self.general = GeneralSettings()
         self.epsilon = 1.0 
-        self.epsilonMin = 0.3
+        self.epsilonMin = 0.1
         self.epsilonMax = 1.0 
         self.batchSize = 32
-        self.epsilonRandomFrames = 2000
+        self.epsilonRandomFrames = 20000
         self.epsilonGreedyFrames = 2000000
         self.maxMemoryLength = 10000
         self.updateAfterActions = 5
@@ -173,7 +173,8 @@ def runACLambda(s = ACLambdaSettings(), demo = False):
         frame = 0
         while not done:
             frame +=1
-            env.render()  
+            if demo:
+                env.render()  
 
             action = agent.chooseAction(state) + 1 
 
@@ -220,15 +221,17 @@ def runACLambda(s = ACLambdaSettings(), demo = False):
 
 ###### Q-learning
 
-def createQModel(s):
+def createQModel(s, optimiser):
 
     inputs = layers.Input(shape=s.general.resizedPixelCount())
 
     b = layers.Dense(s.general.denseUnits1, activation="relu")(inputs)
     b = layers.LayerNormalization()(layers.Dense(s.general.denseUnits2, activation="relu")(b))
     actions = layers.Dense(len(s.general.possibleActions), activation="softmax")(b)
-
-    return keras.Model(inputs=inputs, outputs=actions)
+    
+    model = keras.Model(inputs=inputs, outputs=actions)
+    model.compile(optimizer = optimiser) 
+    return model
    
 
 def runQLearn(s = QLearningSettings(), demo = False):
@@ -238,14 +241,20 @@ def runQLearn(s = QLearningSettings(), demo = False):
     env = gym.make(s.general.romName)
     env.seed(s.general.seed)
 
-
-    model = createQModel(s)
-    modelTarget = createQModel(s)
+    if demo:
+        model = keras.models.load_model('./QmodelT')
+        modelTarget = keras.models.load_model('./Qmodel')
+    else:
+        optimiser = keras.optimizers.Adam(learning_rate=s.general.learningRate, clipnorm=1.0) 
+        model = createQModel(s, optimiser = optimiser)
+        modelTarget = createQModel(s, optimiser = optimiser)
+  
+        
     
     env = gym.make(s.general.romName)
     env.seed(s.general.seed)
 
-    optimizer = keras.optimizers.Adam(learning_rate=s.general.learningRate, clipnorm=1.0)
+    
 
     actionHistory = []
     stateHistory = []
@@ -256,7 +265,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
     runningReward = 0
     episodeCount = 0
     frameCount = 0
-    
+    bestReward = 0
     
     lossFunction = keras.losses.Huber()
     epsilon = s.epsilon
@@ -273,10 +282,11 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
         done = False
         while not done:
-            #env.render(); 
+            if demo or True:
+                env.render(); 
             frameCount = frameCount + 1
 
-            if epsilon > np.random.rand(1)[0] or frameCount < s.epsilonRandomFrames :
+            if not demo and (epsilon > np.random.rand(1)[0] or frameCount < s.epsilonRandomFrames) :
                 if informOfRandomPeriodEnd is True and (s.epsilonRandomFrames - frameCount)% 100 is 1:
                     print("Random period for " + str(s.epsilonRandomFrames - frameCount) + " frames")
                 if sumbmergeMove < s.submergeMoves:                  
@@ -285,7 +295,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
                 else:
                     action = np.random.choice(s.general.possibleActions)
             else:
-                if informOfRandomPeriodEnd is True:
+                if not demo and informOfRandomPeriodEnd:
                     print("RANDOM PERIOD END")
                     informOfRandomPeriodEnd = False
 
@@ -310,7 +320,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
             rewardsHistory.append(reward)
             state = stateNext
 
-            if frameCount % s.updateAfterActions == 0 and len(doneHistory) > s.batchSize:
+            if not demo and frameCount % s.updateAfterActions == 0 and len(doneHistory) > s.batchSize:
 
                 indices = np.random.choice(range(len(doneHistory)), size=s.batchSize)
 
@@ -335,9 +345,9 @@ def runQLearn(s = QLearningSettings(), demo = False):
                     loss = lossFunction(updatedQValues, qAction)
 
                 grads = tape.gradient(loss, model.trainable_variables)
-                optimizer.apply_gradients(zip(grads, model.trainable_variables))
+                optimiser.apply_gradients(zip(grads, model.trainable_variables))
 
-            if frameCount % s.updateTargetNetwork == 0:
+            if not demo and frameCount % s.updateTargetNetwork == 0:
                 modelTarget.set_weights(model.get_weights())
                 template = "running reward: {:.2f} at episode {}, frame count {}"
                 print(template.format(runningReward, episodeCount, frameCount))
@@ -353,16 +363,18 @@ def runQLearn(s = QLearningSettings(), demo = False):
         if len(episodeRewardHistory) > 100:
             del episodeRewardHistory[:1]
         runningReward = np.mean(episodeRewardHistory)
+        
+        if not demo and bestReward < runningReward:
+            bestReward = runningReward
+            model.save('./Qmodel')
+            modelTarget.save('./QmodelT')
 
         episodeCount += 1
 
         print("episode {}: rewarded with {}".format(currEpisode, episodeReward))
         episodesRewards.append(episodeReward)
 
-        if currEpisode%20 == 0:
-            model.save("./QmodelEp{}".format(currEpisode))
-            modelTarget.save("./QmodelTargetEp{}".format(currEpisode))
-        
+        if not demo and currEpisode%20 == 0:
             fig, ax = plt.subplots()
             ax.plot(episodesRewards)
 
@@ -377,7 +389,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
 
 
-runAC = True
+runAC = False
 demoOfTrainedModels = True
 
 if runAC:
