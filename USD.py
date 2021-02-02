@@ -150,7 +150,7 @@ class ActorCriticAgent:
         
 ###### aktor-krytyk
 
-def trainACLambda(s = ACLambdaSettings()):
+def runACLambda(s = ACLambdaSettings(), demo = False):
 
     episodesRewards = []  
 
@@ -160,10 +160,9 @@ def trainACLambda(s = ACLambdaSettings()):
     agent = ActorCriticAgent()
     bestScore = 0
     historyScore = []
-    loadModel = False
     scoreSomeFramesBefore = 0
 
-    if loadModel:
+    if demo:
         agent.loadModel()
 
     for currEpisode in range(s.general.episodes):       
@@ -181,7 +180,7 @@ def trainACLambda(s = ACLambdaSettings()):
             stateNext, reward, done, _ = env.step(action)
             episodeReward +=reward
 
-            if not loadModel:
+            if not demo:
                 if frame > 200 and episodeReward == scoreSomeFramesBefore and frame%50 == 0: 
                     if frame%500 == 0:
                         agent.learn(state,-100,stateNext, True)
@@ -201,12 +200,12 @@ def trainACLambda(s = ACLambdaSettings()):
 
         if avgScore > bestScore:
             bestScore = avgScore
-            if not loadModel:
+            if not demo:
                 agent.saveModel()
 
         print("episode {}: rewarded with {}".format(currEpisode, episodeReward))
 
-        if currEpisode%10 == 0:
+        if currEpisode%10 == 0 and not demo:
             fig, ax = plt.subplots()
             ax.plot(historyScore)
 
@@ -232,7 +231,7 @@ def createQModel(s):
     return keras.Model(inputs=inputs, outputs=actions)
    
 
-def trainQLearn(s = QLearningSettings()):
+def runQLearn(s = QLearningSettings(), demo = False):
     
     episodesRewards =[]
 
@@ -378,9 +377,10 @@ def trainQLearn(s = QLearningSettings()):
 
 
 
-TrainAC = False
+runAC = True
+demoOfTrainedModels = True
 
-if TrainAC:
-    trainACLambda()
+if runAC:
+    runACLambda(demo = demoOfTrainedModels)
 else:
-    trainQLearn()
+    runQLearn(demo = demoOfTrainedModels)
