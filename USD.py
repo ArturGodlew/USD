@@ -47,7 +47,7 @@ class QLearningSettings:
     def __init__(self):
         self.general = GeneralSettings()
         self.epsilon = 1.0 
-        self.epsilonMin = 0.1
+        self.epsilonMin = 0.3
         self.epsilonMax = 1.0 
         self.batchSize = 32
         self.epsilonRandomFrames = 20000
@@ -282,7 +282,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
         done = False
         while not done:
-            if demo:
+            if demo or True:
                 env.render(); 
             frameCount = frameCount + 1
 
