@@ -242,8 +242,8 @@ def runQLearn(s = QLearningSettings(), demo = False):
     env.seed(s.general.seed)
 
     if demo:
-        model = keras.models.load_model('./QmodelT')
-        modelTarget = keras.models.load_model('./Qmodel')
+        model = keras.models.load_model('./Qmodel')
+        modelTarget = keras.models.load_model('./QmodelT')
     else:
         optimiser = keras.optimizers.Adam(learning_rate=s.general.learningRate, clipnorm=1.0) 
         model = createQModel(s, optimiser = optimiser)
@@ -282,7 +282,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
         done = False
         while not done:
-            if demo or True:
+            if demo:
                 env.render(); 
             frameCount = frameCount + 1
 
@@ -390,7 +390,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
 
 runAC = False
-demoOfTrainedModels = True
+demoOfTrainedModels = False
 
 if runAC:
     runACLambda(demo = demoOfTrainedModels)
