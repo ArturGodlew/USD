@@ -1,12 +1,12 @@
 # USD
 
-Do uruchomienia nalezy zaimportować biblioteki
-opencv_python
-matplotlib
-numpy
-tensorflow_probability
-gym
-tensorflow
+Do uruchomienia nalezy zaimportować biblioteki  
+opencv_python  
+matplotlib 
+numpy  
+tensorflow_probability  
+gym  
+tensorflow  
 
 
 Aby uruchomić demo wyuczonych modeli należy w lini 393 mięć ustawione
