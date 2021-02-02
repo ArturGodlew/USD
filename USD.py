@@ -282,7 +282,7 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
         done = False
         while not done:
-            if demo or True:
+            if demo:
                 env.render(); 
             frameCount = frameCount + 1
 
@@ -389,8 +389,8 @@ def runQLearn(s = QLearningSettings(), demo = False):
 
 
 
-runAC = False
-demoOfTrainedModels = False
+runAC = True
+demoOfTrainedModels = True
 
 if runAC:
     runACLambda(demo = demoOfTrainedModels)
